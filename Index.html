@@ -1,0 +1,92 @@
+<!DOCTYPE html><html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sara's Pocket Pantry</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon.png">
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; background: #fafafa; }
+    h1 { font-size: 1.4rem; }
+    button { padding: 12px; margin: 6px 0; width: 100%; font-size: 1rem; }
+    .mode { display: flex; gap: 8px; }
+    .item { background: #fff; padding: 10px; margin: 6px 0; border-radius: 8px; }
+    video { width: 100%; border-radius: 12px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h1>Sara's Pocket Pantry</h1>  <div class="mode">
+    <button onclick="setMode('IN')">Scan In</button>
+    <button onclick="setMode('OUT')">Scan Out</button>
+    <button onclick="setMode('STORE')">Store Mode</button>
+  </div><video id="video" autoplay></video> <button onclick="startScan()">Start Scanning</button>
+
+  <h2>Inventory</h2>
+  <div id="list"></div><script src="https://unpkg.com/@zxing/library@latest"></script><script>
+  let mode = 'IN';
+  let db;
+
+  function setMode(m) {
+    mode = m;
+    alert(`Mode: ${m}`);
+  }
+
+  const request = indexedDB.open('pantryDB', 1);
+  request.onupgradeneeded = e => {
+    db = e.target.result;
+    db.createObjectStore('items', { keyPath: 'barcode' });
+  };
+  request.onsuccess = e => {
+    db = e.target.result;
+    loadItems();
+  };
+
+  function updateItem(barcode) {
+    const tx = db.transaction('items', 'readwrite');
+    const store = tx.objectStore('items');
+    const getReq = store.get(barcode);
+
+    getReq.onsuccess = () => {
+      let item = getReq.result || { barcode, name: 'Unknown Item', qty: 0 };
+
+      if (mode === 'STORE') {
+        alert(`You currently have ${item.qty || 0}`);
+        return;
+      }
+
+      let delta = mode === 'IN' ? 1 : -1;
+      let entered = prompt('Quantity change?', delta);
+      delta = Number(entered);
+
+      item.qty = Math.max(0, (item.qty || 0) + delta);
+      store.put(item);
+      tx.oncomplete = loadItems;
+    };
+  }
+
+  function loadItems() {
+    const tx = db.transaction('items', 'readonly');
+    const store = tx.objectStore('items');
+    const req = store.getAll();
+    req.onsuccess = () => {
+      const list = document.getElementById('list');
+      list.innerHTML = '';
+      req.result.forEach(i => {
+        list.innerHTML += `<div class='item'><b>${i.name}</b><br>Qty: ${i.qty}</div>`;
+      });
+    };
+  }
+
+  async function startScan() {
+    const codeReader = new ZXing.BrowserBarcodeReader();
+    const video = document.getElementById('video');
+    const devices = await ZXing.BrowserBarcodeReader.listVideoInputDevices();
+    codeReader.decodeFromVideoDevice(devices[0].deviceId, video, (result, err) => {
+      if (result) {
+        updateItem(result.text);
+        codeReader.reset();
+      }
+    });
+  }
+</script></body>
+</html>
